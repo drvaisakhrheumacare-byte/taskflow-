@@ -14,17 +14,22 @@ SHEET_TAB = "Master Tasks"
 MY_EMAIL  = "projects@rheumacare.com"
 
 # ── LOGIN CONFIG ──────────────────────────────────────────────
-# Add users here: "username": "password"
-# Passwords are stored as SHA-256 hashes for security
-# To add a new user, add their username and SHA-256 hash of their password
-USERS = {
-    "drvaisakh": hashlib.sha256("rheuma@2026".encode()).hexdigest(),
-    "admin":     hashlib.sha256("taskflow@admin".encode()).hexdigest(),
-}
-# Default credentials:
-#   Username: drvaisakh   Password: rheuma@2026
-#   Username: admin       Password: taskflow@admin
-# Change passwords in the USERS dict above, then redeploy
+# Credentials are loaded from Streamlit secrets.
+# In secrets.toml add:
+#   [users]
+#   drvaisakh = "your_password"
+#   admin = "another_password"
+# Passwords are compared as plain text (secrets are never exposed publicly)
+
+def get_users():
+    try:
+        return dict(st.secrets["users"])
+    except Exception:
+        # Fallback hardcoded credentials if secrets not configured
+        return {
+            "drvaisakh": "rheuma@2026",
+            "admin":     "taskflow@admin",
+        }
 
 AUTO_REFRESH_SECONDS = 30   # how often the app auto-refreshes to pick up new tasks
 
@@ -226,8 +231,8 @@ def login_screen():
             username = st.text_input("👤 Username", placeholder="Enter username")
             password = st.text_input("🔒 Password", type="password", placeholder="Enter password")
             if st.form_submit_button("Sign In →", use_container_width=True, type="primary"):
-                pw_hash = hashlib.sha256(password.encode()).hexdigest()
-                if username in USERS and USERS[username] == pw_hash:
+                users = get_users()
+                if username in users and users[username] == password:
                     st.session_state["authenticated"] = True
                     st.session_state["username"] = username
                     st.rerun()
