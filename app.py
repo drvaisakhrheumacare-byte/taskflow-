@@ -402,7 +402,7 @@ if __name__=="__main__": main()
 # even when the user is idle (no interaction).
 try:
     from streamlit_autorefresh import st_autorefresh
-    st_autorefresh(interval=AUTO_REFRESH_SECONDS * 1000, key=autorefresh)
+    st_autorefresh(interval=AUTO_REFRESH_SECONDS * 1000, key="autorefresh")
 except ImportError:
     pass  # falls back to the session_state timer in main()
 
