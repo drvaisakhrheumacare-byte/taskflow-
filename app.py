@@ -1,5 +1,5 @@
 import streamlit as st
-st.set_page_config(page_title="TaskFlow — Dr. Vaisakh", page_icon="✅", layout="wide")
+st.set_page_config(page_title="Growth Manager Dashboard", page_icon="📊", layout="wide")
 
 import pandas as pd
 import gspread
@@ -43,6 +43,11 @@ CENTRE_COLORS = {"Kumbalam":"#7C3AED","Kollam":"#0D9488","Guwahati":"#2563EB","M
 STATUS_ICON = {"Pending":"🔵","Not Started":"⚪","In Progress":"🟡","On Hold":"🟠","Done":"✅","Rejected":"❌","Reassigned":"👤"}
 SCOPES = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
 
+PING_SHEET_ID      = "1uf4pqKHEAbw6ny7CVZZVMw23PTfmv0QZzdCyj4fU33c"
+PING_SERVERS_TAB   = "ServerStatus"
+SERVER_TYPE_ORDER  = ["Main Server","Backup Server","Bitvoice Gateway","Bitvoice Server"]
+SERVER_DISPLAY_COLS= ["Centre","Status","Timestamp","ResponseTime(ms)","Server IP","Last Online"]
+
 @st.cache_resource(ttl=300)
 def get_client():
     try:
@@ -84,6 +89,21 @@ def load_tasks():
     except Exception as e:
         st.error(f"Load error: {e}")
         return pd.DataFrame(columns=SHEET_COLS)
+
+@st.cache_data(ttl=60)
+def load_servers():
+    client = get_client()
+    if not client: return pd.DataFrame()
+    try:
+        ws = client.open_by_key(PING_SHEET_ID).worksheet(PING_SERVERS_TAB)
+        data = ws.get_all_records()
+        if not data: return pd.DataFrame()
+        df = pd.DataFrame(data)
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception as e:
+        st.error(f"Server data error: {e}")
+        return pd.DataFrame()
 
 def save_task(task):
     ws = get_ws()
@@ -222,8 +242,8 @@ def login_screen():
     with col2:
         st.markdown("""
         <div style="text-align:center;padding:50px 0 24px">
-            <div style="font-size:52px">✅</div>
-            <div style="font-size:26px;font-weight:700;color:#E8EAFF;margin:10px 0 4px">TaskFlow</div>
+            <div style="font-size:52px">📊</div>
+            <div style="font-size:26px;font-weight:700;color:#E8EAFF;margin:10px 0 4px">Growth Manager Dashboard</div>
             <div style="font-size:13px;color:#7880A4">RheumaCARE · Dr. Vaisakh VS</div>
         </div>""", unsafe_allow_html=True)
 
@@ -262,7 +282,7 @@ def main():
 
     # ── SIDEBAR ───────────────────────────────────────────────
     with st.sidebar:
-        st.markdown("## ✅ TaskFlow")
+        st.markdown("## 📊 Growth Manager")
         st.caption(f"👤 **{st.session_state.get('username','')}")
         st.caption(f"[Open Sheet ↗]({SHEET_URL})")
         st.divider()
@@ -303,7 +323,7 @@ def main():
         mask = filt.apply(lambda r: srch.lower() in str(r).lower(), axis=1)
         filt = filt[mask]
 
-    st.markdown("# ✅ TaskFlow")
+    st.markdown("# 📊 Growth Manager Dashboard")
     st.caption(f"Dr. Vaisakh VS · RheumaCARE · {datetime.now().strftime('%d %b %Y, %H:%M')}")
 
     if not df.empty:
@@ -321,7 +341,7 @@ def main():
         </div>""", unsafe_allow_html=True)
 
     st.divider()
-    t1,t2,t3,t4,t5 = st.tabs(["📋 All Tasks","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics"])
+    t1,t2,t3,t4,t5,t6 = st.tabs(["📋 All Tasks","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor"])
 
     with t1:
         if filt.empty:
@@ -397,6 +417,34 @@ def main():
             st.dataframe(df, use_container_width=True, hide_index=True,
                 column_config={"Title":st.column_config.TextColumn(width="large"),"Notes":st.column_config.TextColumn(width="medium"),"Days Overdue":st.column_config.NumberColumn(format="%d days")})
         else: st.info("No data yet.")
+
+    with t6:
+        st.markdown("### 🖥️ Server Monitor")
+        col_ref, _ = st.columns([1,5])
+        with col_ref:
+            if st.button("🔄 Refresh", key="srv_refresh"):
+                load_servers.clear()
+                st.rerun()
+        sdf = load_servers()
+        if sdf.empty:
+            st.info("No server data available. Check the ServerStatus sheet is accessible.")
+        else:
+            def color_status(val):
+                v = str(val).strip().lower()
+                if v == "success": return "background-color:#14532d;color:#86efac"
+                if v == "failed":  return "background-color:#7f1d1d;color:#fca5a5"
+                return ""
+            sdf["Server Name"] = sdf["Server Name"].str.strip()
+            for stype in SERVER_TYPE_ORDER:
+                subset = sdf[sdf["Server Name"] == stype].copy()
+                if subset.empty: continue
+                for col in SERVER_DISPLAY_COLS:
+                    if col not in subset.columns: subset[col] = ""
+                st.markdown(f"**{stype}**")
+                st.dataframe(
+                    subset[SERVER_DISPLAY_COLS].style.applymap(color_status, subset=["Status"]),
+                    use_container_width=True, hide_index=True
+                )
 
 if __name__=="__main__": main()
 # ── NATIVE STREAMLIT AUTO-REFRESH ─────────────────────────────
