@@ -133,6 +133,53 @@ def delete_row(tid):
         ws.delete_rows(cell.row); load_tasks.clear(); return True
     except: return False
 
+CENTRE_KEYWORDS_PY = {
+    "Nettoor":       ["nettoor","nettur"],
+    "Kumbalam":      ["kumbalam","kbl"],
+    "Trivandrum":    ["trivandrum","thiruvananthapuram","tvm"],
+    "Bhubaneswar":   ["bhubaneswar","bbsr","bhubaneshwar","odisha"],
+    "Kannur":        ["kannur","cannanore","knn"],
+    "Changanassery": ["changanassery","chengannur","cgs"],
+    "Guwahati":      ["guwahati","gauhati","guw"],
+    "Kollam":        ["kollam","quilon","qln"],
+    "Mysore":        ["mysore","mysuru","mys"],
+    "Bangalore":     ["bangalore","bengaluru","blr"],
+    "Ahmedabad":     ["ahmedabad","gujarat","ahd"],
+    "Visakhapatnam": ["visakhapatnam","vizag","vsk","vsp","vishakhapatnam"],
+}
+CATEGORY_KEYWORDS_PY = {
+    "Civil Work":           ["civil","construction","partition","lab","room","floor","building","renovation"],
+    "IT / Systems":         ["server","internet","wifi","bsnl","airtel","jio","network","ip","vpn","router","switch","laptop","computer","cctv","ups","smps"],
+    "Finance":              ["payment","invoice","bill","advance","reimburs","gst","amount","rs.","rupee","lakh","fees","salary"],
+    "Regulatory / Licence": ["noc","licence","license","nabl","nabh","drug","compliance","inspection","statutory","registration"],
+    "Admin / Hardware":     ["printer","ac","inverter","hardware","equipment","furniture","chair","table","barcode","scanner"],
+    "Legal / Contracts":    ["lease","agreement","contract","deed","registrar","legal","lawyer"],
+    "QMS / HMS":            ["qms","hms","emr","token","display","impactin","software","module"],
+    "Operations":           ["sop","cash","petty","operations","daily","report","attendance"],
+}
+
+def detect_centre(text):
+    t = text.lower()
+    for centre, kws in CENTRE_KEYWORDS_PY.items():
+        if any(kw in t for kw in kws):
+            return centre
+    return "Others"
+
+def detect_category(text):
+    t = text.lower()
+    for cat, kws in CATEGORY_KEYWORDS_PY.items():
+        if any(kw in t for kw in kws):
+            return cat
+    return "Operations"
+
+def detect_priority(text):
+    t = text.lower()
+    if any(w in t for w in ["urgent","asap","immediately","critical","today","high priority","important"]):
+        return "High"
+    if any(w in t for w in ["soon","this week","priority","medium"]):
+        return "Medium"
+    return "Medium"
+
 def next_id(df):
     if df.empty: return 1
     ids = pd.to_numeric(df["ID"], errors="coerce").dropna()
@@ -388,6 +435,45 @@ def main():
             else: st.info(f"No tasks for {pick}.")
 
     with t4:
+        # ── WHATSAPP QUICK ADD ────────────────────────────────
+        with st.expander("📱 Quick Add from WhatsApp", expanded=False):
+            wa_msg = st.text_area("Paste WhatsApp message here", height=130,
+                                  placeholder="e.g. Vaisakh, please follow up on the Kollam civil work payment, very urgent...")
+            if wa_msg.strip():
+                auto_centre   = detect_centre(wa_msg)
+                auto_cat      = detect_category(wa_msg)
+                auto_priority = detect_priority(wa_msg)
+                # Suggest title: first sentence or first 120 chars
+                import re
+                sentences = re.split(r'[.!\n]', wa_msg.strip())
+                auto_title = sentences[0].strip()[:180] if sentences else wa_msg[:180]
+
+                st.markdown("**Detected fields** — adjust if needed:")
+                wc1, wc2, wc3 = st.columns(3)
+                with wc1: wa_centre   = st.selectbox("Centre",   CENTRES,    index=CENTRES.index(auto_centre), key="wa_c")
+                with wc2: wa_cat      = st.selectbox("Category", CATEGORIES, index=CATEGORIES.index(auto_cat) if auto_cat in CATEGORIES else 0, key="wa_k")
+                with wc3: wa_priority = st.selectbox("Priority", ["High","Medium","Low"],
+                                                      index=["High","Medium","Low"].index(auto_priority), key="wa_p")
+                wa_title = st.text_input("Title", value=auto_title, key="wa_t")
+                if st.button("➕ Add as Task", type="primary", key="wa_add", use_container_width=True):
+                    if wa_title.strip():
+                        sender = "WhatsApp"
+                        t = {
+                            "ID": next_id(df), "Centre": wa_centre, "Category": wa_cat,
+                            "Title": wa_title.strip(), "Due Date": "", "Days Overdue": 0,
+                            "Status": "Pending", "Priority": wa_priority,
+                            "Owner": "Dr. Vaisakh V S", "Source": "WhatsApp",
+                            "Notes": wa_msg.strip(), "Reassigned To": "",
+                            "Email Message ID": "",
+                            "Date Added": date.today().isoformat(),
+                            "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        }
+                        if save_task(t):
+                            st.success(f"✅ Task added to {wa_centre}!")
+                            st.rerun()
+                    else:
+                        st.error("Title is required.")
+
         st.markdown("### ➕ Add New Task")
         with st.form("add", clear_on_submit=True):
             c1,c2 = st.columns(2)
