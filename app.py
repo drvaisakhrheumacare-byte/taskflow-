@@ -33,13 +33,13 @@ def get_users():
 
 AUTO_REFRESH_SECONDS = 30   # how often the app auto-refreshes to pick up new tasks
 
-CENTRES    = ["Kumbalam","Kollam","Guwahati","Mysuru","Visakhapatnam","Bengaluru","Kochi","Thiruvananthapuram","Kannur","Changanassery","Bhubaneswar","Ahmedabad","General"]
+CENTRES    = ["Nettoor","Kumbalam","Trivandrum","Bhubaneswar","Kannur","Changanassery","Guwahati","Kollam","Mysore","Bangalore","Ahmedabad","Others"]
 CATEGORIES = ["Civil Work","Admin / Hardware","Regulatory / Licence","IT / Systems","QMS / HMS","Operations","Finance","HR / Admin","Legal / Contracts","Other"]
 STATUSES   = ["Pending","Not Started","In Progress","On Hold","Done","Rejected","Reassigned"]
 PRIORITIES = ["","High","Medium","Low"]
 SOURCES    = ["Email","Tracker","Manual","Meeting","WhatsApp"]
 SHEET_COLS = ["ID","Centre","Category","Title","Due Date","Days Overdue","Status","Priority","Owner","Source","Notes","Reassigned To","Date Added","Last Updated","Email Message ID"]
-CENTRE_COLORS = {"Kumbalam":"#7C3AED","Kollam":"#0D9488","Guwahati":"#2563EB","Mysuru":"#D97706","Visakhapatnam":"#DC2626","Bengaluru":"#DB2777","Kochi":"#9333EA","Thiruvananthapuram":"#059669","Kannur":"#EA580C","Changanassery":"#0891B2","Bhubaneswar":"#65A30D","Ahmedabad":"#7C3AED","General":"#16A34A"}
+CENTRE_COLORS = {"Nettoor":"#6366F1","Kumbalam":"#7C3AED","Trivandrum":"#059669","Bhubaneswar":"#65A30D","Kannur":"#EA580C","Changanassery":"#0891B2","Guwahati":"#2563EB","Kollam":"#0D9488","Mysore":"#D97706","Bangalore":"#DB2777","Ahmedabad":"#F59E0B","Others":"#16A34A"}
 STATUS_ICON = {"Pending":"🔵","Not Started":"⚪","In Progress":"🟡","On Hold":"🟠","Done":"✅","Rejected":"❌","Reassigned":"👤"}
 SCOPES = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
 

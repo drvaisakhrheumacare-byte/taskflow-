@@ -21,24 +21,23 @@ const NOTIFY_EMAIL = "projects@rheumacare.com";  // where to send alerts
 const LABEL_NAME   = "TaskFlow/Processed";       // Gmail label for scanned emails
 
 const CENTRES = [
-  "Kumbalam","Kollam","Guwahati","Mysuru","Visakhapatnam",
-  "Bengaluru","Kochi","Thiruvananthapuram","Kannur",
-  "Changanassery","Bhubaneswar","Ahmedabad","General"
+  "Nettoor","Kumbalam","Trivandrum","Bhubaneswar",
+  "Kannur","Changanassery","Guwahati","Kollam",
+  "Mysore","Bangalore","Ahmedabad","Others"
 ];
 
 const CENTRE_KEYWORDS = {
-  "Kumbalam":           ["kumbalam","kbl"],
-  "Kollam":             ["kollam","qlnla","qln","quilon"],
-  "Guwahati":           ["guwahati","guw","gauhati"],
-  "Mysuru":             ["mysuru","mysore","mys"],
-  "Visakhapatnam":      ["visakhapatnam","vizag","vsk","vsp"],
-  "Bengaluru":          ["bengaluru","bangalore","blr"],
-  "Kochi":              ["kochi","cochin","ernakulam"],
-  "Thiruvananthapuram": ["thiruvananthapuram","trivandrum","tvm"],
-  "Kannur":             ["kannur","cannanore","knn"],
-  "Changanassery":      ["changanassery","chengannur","cgs"],
-  "Bhubaneswar":        ["bhubaneswar","bbsr","odisha"],
-  "Ahmedabad":          ["ahmedabad","ahd","gujarat"],
+  "Nettoor":       ["nettoor","nettur"],
+  "Kumbalam":      ["kumbalam","kbl"],
+  "Trivandrum":    ["trivandrum","thiruvananthapuram","tvm"],
+  "Bhubaneswar":   ["bhubaneswar","bbsr","bhubaneshwar","odisha"],
+  "Kannur":        ["kannur","cannanore","knn"],
+  "Changanassery": ["changanassery","chengannur","cgs"],
+  "Guwahati":      ["guwahati","guw","gauhati"],
+  "Kollam":        ["kollam","qln","quilon"],
+  "Mysore":        ["mysore","mysuru","mys"],
+  "Bangalore":     ["bangalore","bengaluru","blr"],
+  "Ahmedabad":     ["ahmedabad","ahd","gujarat"],
 };
 
 const TASK_KEYWORDS = [
