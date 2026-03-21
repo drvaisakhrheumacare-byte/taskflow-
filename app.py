@@ -180,6 +180,73 @@ def detect_priority(text):
         return "Medium"
     return "Medium"
 
+@st.cache_resource
+def get_anthropic_client():
+    try:
+        import anthropic
+        return anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    except Exception:
+        return None
+
+def parse_tasks_with_ai(text):
+    import json, re
+    client = get_anthropic_client()
+    if not client:
+        # Fallback: single task via keyword detection
+        return [{
+            "title": re.split(r'[.\n!]', text.strip())[0][:180].strip(),
+            "centre": detect_centre(text),
+            "category": detect_category(text),
+            "priority": detect_priority(text),
+            "notes": text.strip(),
+        }]
+
+    prompt = f"""You are a task extraction assistant for Dr. Vaisakh VS, Growth Manager at RheumaCARE (multi-centre rheumatology clinic chain in India).
+
+Extract EVERY distinct actionable task from the message below. If there are multiple tasks, return one entry per task. If there is only one task, return a single-element array.
+
+Return ONLY a raw JSON array — no explanation, no markdown fences:
+[
+  {{
+    "title": "short actionable verb-first title, max 150 chars",
+    "centre": "exactly one of: Nettoor, Kumbalam, Trivandrum, Bhubaneswar, Kannur, Changanassery, Guwahati, Kollam, Mysore, Bangalore, Ahmedabad, Visakhapatnam, Others",
+    "category": "exactly one of: Civil Work, Admin / Hardware, Regulatory / Licence, IT / Systems, QMS / HMS, Operations, Finance, HR / Admin, Legal / Contracts, Other",
+    "priority": "High, Medium, or Low",
+    "notes": "key context — who asked, amounts, deadlines, any specifics"
+  }}
+]
+
+Message:
+{text}"""
+
+    try:
+        import anthropic
+        resp = get_anthropic_client().messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = resp.content[0].text.strip()
+        # Strip markdown code fences if model includes them
+        raw = re.sub(r'^```(?:json)?', '', raw).rstrip('`').strip()
+        tasks = json.loads(raw)
+        valid_centres = set(CENTRES)
+        valid_cats    = set(CATEGORIES)
+        for t in tasks:
+            if t.get("centre")   not in valid_centres: t["centre"]   = detect_centre(text)
+            if t.get("category") not in valid_cats:    t["category"] = detect_category(text)
+            if t.get("priority") not in ["High","Medium","Low"]: t["priority"] = "Medium"
+        return tasks
+    except Exception as e:
+        st.warning(f"AI parsing error ({e}). Using keyword fallback.")
+        return [{
+            "title": re.split(r'[.\n!]', text.strip())[0][:180].strip(),
+            "centre": detect_centre(text),
+            "category": detect_category(text),
+            "priority": detect_priority(text),
+            "notes": text.strip(),
+        }]
+
 def next_id(df):
     if df.empty: return 1
     ids = pd.to_numeric(df["ID"], errors="coerce").dropna()
@@ -435,44 +502,78 @@ def main():
             else: st.info(f"No tasks for {pick}.")
 
     with t4:
-        # ── WHATSAPP QUICK ADD ────────────────────────────────
-        with st.expander("📱 Quick Add from WhatsApp", expanded=False):
-            wa_msg = st.text_area("Paste WhatsApp message here", height=130,
-                                  placeholder="e.g. Vaisakh, please follow up on the Kollam civil work payment, very urgent...")
-            if wa_msg.strip():
-                auto_centre   = detect_centre(wa_msg)
-                auto_cat      = detect_category(wa_msg)
-                auto_priority = detect_priority(wa_msg)
-                # Suggest title: first sentence or first 120 chars
-                import re
-                sentences = re.split(r'[.!\n]', wa_msg.strip())
-                auto_title = sentences[0].strip()[:180] if sentences else wa_msg[:180]
+        # ── AI QUICK ADD (WhatsApp / Email) ──────────────────────
+        has_ai = get_anthropic_client() is not None
+        ai_label = "🤖 Parse with AI" if has_ai else "🔍 Detect Tasks"
+        ai_hint  = "Claude AI will identify every task, assign centre/category/priority, and split into separate tasks." if has_ai \
+                   else "Add ANTHROPIC_API_KEY to Streamlit secrets to enable AI parsing. Using keyword detection for now."
 
-                st.markdown("**Detected fields** — adjust if needed:")
-                wc1, wc2, wc3 = st.columns(3)
-                with wc1: wa_centre   = st.selectbox("Centre",   CENTRES,    index=CENTRES.index(auto_centre), key="wa_c")
-                with wc2: wa_cat      = st.selectbox("Category", CATEGORIES, index=CATEGORIES.index(auto_cat) if auto_cat in CATEGORIES else 0, key="wa_k")
-                with wc3: wa_priority = st.selectbox("Priority", ["High","Medium","Low"],
-                                                      index=["High","Medium","Low"].index(auto_priority), key="wa_p")
-                wa_title = st.text_input("Title", value=auto_title, key="wa_t")
-                if st.button("➕ Add as Task", type="primary", key="wa_add", use_container_width=True):
-                    if wa_title.strip():
-                        sender = "WhatsApp"
-                        t = {
-                            "ID": next_id(df), "Centre": wa_centre, "Category": wa_cat,
-                            "Title": wa_title.strip(), "Due Date": "", "Days Overdue": 0,
-                            "Status": "Pending", "Priority": wa_priority,
-                            "Owner": "Dr. Vaisakh V S", "Source": "WhatsApp",
-                            "Notes": wa_msg.strip(), "Reassigned To": "",
-                            "Email Message ID": "",
-                            "Date Added": date.today().isoformat(),
-                            "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M")
-                        }
-                        if save_task(t):
-                            st.success(f"✅ Task added to {wa_centre}!")
-                            st.rerun()
-                    else:
-                        st.error("Title is required.")
+        with st.expander("📱 Quick Add from WhatsApp / Email", expanded=False):
+            st.caption(ai_hint)
+            wa_msg = st.text_area("Paste message here", height=140,
+                                  placeholder="Paste any WhatsApp message or email body — even if it contains multiple tasks...")
+            pc1, pc2 = st.columns([2,1])
+            with pc1:
+                parse_clicked = st.button(ai_label, key="wa_parse", use_container_width=True, type="primary")
+            with pc2:
+                if st.button("✕ Clear", key="wa_clear", use_container_width=True):
+                    st.session_state["wa_parsed"] = []
+                    st.rerun()
+
+            if parse_clicked:
+                if wa_msg.strip():
+                    with st.spinner("Parsing…"):
+                        st.session_state["wa_parsed"] = parse_tasks_with_ai(wa_msg.strip())
+                        st.session_state["wa_src"]    = wa_msg.strip()
+                else:
+                    st.warning("Paste a message first.")
+
+            parsed = st.session_state.get("wa_parsed", [])
+            if parsed:
+                n = len(parsed)
+                st.markdown(f"**{n} task{'s' if n>1 else ''} detected** — review, edit, then add:")
+                selected = []
+                for i, task in enumerate(parsed):
+                    with st.container():
+                        inc = st.checkbox(f"Include task {i+1}", value=True, key=f"wa_inc_{i}")
+                        if inc:
+                            r1, r2, r3, r4 = st.columns([4, 2, 2, 1])
+                            with r1:
+                                ti = st.text_input("Title", value=task.get("title",""), key=f"wa_ti_{i}")
+                            with r2:
+                                ci_default = CENTRES.index(task["centre"]) if task.get("centre") in CENTRES else 0
+                                ce = st.selectbox("Centre", CENTRES, index=ci_default, key=f"wa_ce_{i}")
+                            with r3:
+                                ca_default = CATEGORIES.index(task["category"]) if task.get("category") in CATEGORIES else 0
+                                ca = st.selectbox("Category", CATEGORIES, index=ca_default, key=f"wa_ca_{i}")
+                            with r4:
+                                pr = st.selectbox("Priority", ["High","Medium","Low"],
+                                                  index=["High","Medium","Low"].index(task.get("priority","Medium")),
+                                                  key=f"wa_pr_{i}")
+                            selected.append({"title":ti,"centre":ce,"category":ca,"priority":pr,
+                                             "notes":task.get("notes", st.session_state.get("wa_src",""))})
+                        st.divider()
+
+                if selected:
+                    if st.button(f"➕ Add {len(selected)} Task{'s' if len(selected)>1 else ''}",
+                                 type="primary", key="wa_add_all", use_container_width=True):
+                        added = 0
+                        for task in selected:
+                            if task["title"].strip():
+                                t = {
+                                    "ID": next_id(load_tasks()), "Centre": task["centre"],
+                                    "Category": task["category"], "Title": task["title"].strip(),
+                                    "Due Date": "", "Days Overdue": 0, "Status": "Pending",
+                                    "Priority": task["priority"], "Owner": "Dr. Vaisakh V S",
+                                    "Source": "WhatsApp", "Notes": task["notes"],
+                                    "Reassigned To": "", "Email Message ID": "",
+                                    "Date Added": date.today().isoformat(),
+                                    "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M")
+                                }
+                                if save_task(t): added += 1
+                        st.success(f"✅ Added {added} task{'s' if added>1 else ''}!")
+                        st.session_state["wa_parsed"] = []
+                        st.rerun()
 
         st.markdown("### ➕ Add New Task")
         with st.form("add", clear_on_submit=True):
