@@ -257,25 +257,27 @@ def css():
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@700&display=swap');
     html,body,[class*="css"]{font-family:'DM Sans',sans-serif!important}
     [data-testid="stSidebar"]{background:#14172080;border-right:1px solid rgba(255,255,255,.06)}
-    .block-container{padding-top:1.2rem!important}
-    .tc{background:#1C2030;border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:13px 17px;margin-bottom:9px;border-left:4px solid #2563EB}
+    .block-container{padding-top:0.5rem!important;padding-bottom:0.5rem!important;max-width:100%!important}
+    .tc{background:#1C2030;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:9px 13px;margin-bottom:6px;border-left:4px solid #2563EB}
     .tc.ov{border-left-color:#EF4444}.tc.hold{border-left-color:#F59E0B}.tc.reg{border-left-color:#8B5CF6}.tc.qms{border-left-color:#EC4899}.tc.done{opacity:.38;border-left-color:#4B5563}.tc.notmine{opacity:.25;border-left-color:#374151;filter:grayscale(.9)}
-    .ttl{font-size:14px;font-weight:500;color:#E8EAFF;line-height:1.4;margin-bottom:7px}
+    .ttl{font-size:13px;font-weight:500;color:#E8EAFF;line-height:1.35;margin-bottom:5px}
     .ttl.done{text-decoration:line-through;color:#6B7280}
-    .tmeta{font-size:11px;color:#7880A4;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
-    .bdg{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
+    .tmeta{font-size:11px;color:#7880A4;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+    .bdg{display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:20px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
     .ov_{background:rgba(239,68,68,.15);color:#F87171}.pd_{background:rgba(37,99,235,.15);color:#93C5FD}
     .hd_{background:rgba(245,158,11,.15);color:#FCD34D}.dn_{background:rgba(52,211,153,.15);color:#6EE7B7}
     .rj_{background:rgba(239,68,68,.1);color:#FCA5A5}.rg_{background:rgba(139,92,246,.15);color:#C4B5FD}
     .qm_{background:rgba(236,72,153,.15);color:#F9A8D4}.hi_{background:rgba(245,158,11,.12);color:#FCD34D}
     .em_{background:rgba(20,184,166,.15);color:#5EEAD4}.tr_{background:rgba(99,102,241,.15);color:#A5B4FC}
     .ct_{background:rgba(120,128,164,.15);color:#9CA3AF}
-    .ch{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#7880A4;padding:8px 0 6px;border-bottom:1px solid rgba(255,255,255,.05);margin:20px 0 10px}
-    .mrow{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
-    .met{background:#1C2030;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:13px 18px;flex:1;min-width:90px;text-align:center}
-    .mn{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700}
-    .ml{font-size:10px;color:#7880A4;text-transform:uppercase;letter-spacing:.5px;margin-top:3px}
-    .stButton>button{border-radius:8px!important;font-size:12px!important;padding:3px 10px!important}
+    .ch{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#7880A4;padding:5px 0 4px;border-bottom:1px solid rgba(255,255,255,.05);margin:12px 0 7px}
+    .mrow{display:flex;gap:8px;margin-bottom:10px;flex-wrap:nowrap}
+    .met{background:#1C2030;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:9px 12px;flex:1;min-width:60px;text-align:center}
+    .mn{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700}
+    .ml{font-size:9px;color:#7880A4;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+    .stButton>button{border-radius:6px!important;font-size:11px!important;padding:2px 7px!important}
+    .stTabs [data-baseweb="tab"]{padding:6px 10px!important;font-size:12px!important}
+    h1,h2,h3{margin-top:0.4rem!important;margin-bottom:0.3rem!important}
     </style>""", unsafe_allow_html=True)
     # Auto-refresh via Streamlit's built-in rerun after delay
     st.markdown(f"""<script>
@@ -339,10 +341,11 @@ def task_card(row, pfx=""):
         if notes:
             with st.expander("📝 Notes"): st.caption(notes)
     elif not is_done:
-        c1,c2,c3,c4,c5,c6 = st.columns(6)
-        if c1.button("✅ Done",     key=f"d_{pfx}{tid}"): update_field(tid,"Status","Done");     st.rerun()
-        if c2.button("⏸ Hold",     key=f"h_{pfx}{tid}"): update_field(tid,"Status","On Hold");  st.rerun()
-        if c3.button("❌ Reject",   key=f"r_{pfx}{tid}"): update_field(tid,"Status","Rejected"); st.rerun()
+        c1,c2,c3 = st.columns(3)
+        if c1.button("✅ Done",   key=f"d_{pfx}{tid}"): update_field(tid,"Status","Done");     st.rerun()
+        if c2.button("⏸ Hold",   key=f"h_{pfx}{tid}"): update_field(tid,"Status","On Hold");  st.rerun()
+        if c3.button("❌ Reject", key=f"r_{pfx}{tid}"): update_field(tid,"Status","Rejected"); st.rerun()
+        c4,c5,c6 = st.columns(3)
         if c4.button("🚫 Not Mine", key=f"nm_{pfx}{tid}"): update_field(tid,"Status","Not Mine"); st.rerun()
         if c5.button("👤 Assign",   key=f"a_{pfx}{tid}"):
             st.session_state[f"rs_{pfx}{tid}"] = not st.session_state.get(f"rs_{pfx}{tid}",False)
@@ -364,7 +367,7 @@ def login_screen():
     col1, col2, col3 = st.columns([1, 1.1, 1])
     with col2:
         st.markdown("""
-        <div style="text-align:center;padding:50px 0 24px">
+        <div style="text-align:center;padding:16px 0 12px">
             <div style="font-size:52px">📊</div>
             <div style="font-size:26px;font-weight:700;color:#E8EAFF;margin:10px 0 4px">Growth Manager Dashboard</div>
             <div style="font-size:13px;color:#7880A4">RheumaCARE · Dr. Vaisakh VS</div>
@@ -405,7 +408,7 @@ def main():
 
     # ── SIDEBAR ───────────────────────────────────────────────
     with st.sidebar:
-        st.markdown("## 📊 Growth Manager")
+        st.markdown("**📊 Growth Manager**")
         st.caption(f"👤 **{st.session_state.get('username','')}")
         st.caption(f"[Open Sheet ↗]({SHEET_URL})")
         st.divider()
@@ -446,8 +449,7 @@ def main():
         mask = filt.apply(lambda r: srch.lower() in str(r).lower(), axis=1)
         filt = filt[mask]
 
-    st.markdown("# 📊 Growth Manager Dashboard")
-    st.caption(f"Dr. Vaisakh VS · RheumaCARE · {datetime.now().strftime('%d %b %Y, %H:%M')}")
+    st.markdown(f'<div style="font-size:17px;font-weight:700;color:#E8EAFF;margin-bottom:2px">📊 Growth Manager Dashboard <span style="font-size:11px;font-weight:400;color:#7880A4;margin-left:8px">Dr. Vaisakh VS · RheumaCARE · {datetime.now().strftime("%d %b %Y, %H:%M")}</span></div>', unsafe_allow_html=True)
 
     if not df.empty:
         ov = len(df[(df["Days Overdue"]>0)&(~df["Status"].isin(["Done","Rejected","Not Mine"]))])
@@ -463,7 +465,6 @@ def main():
           <div class="met"><div class="mn" style="color:#6EE7B7">{dn}</div><div class="ml">Done</div></div>
         </div>""", unsafe_allow_html=True)
 
-    st.divider()
     t1,t2,t3,t4,t5,t6 = st.tabs(["📋 All Tasks","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor"])
 
     with t1:
