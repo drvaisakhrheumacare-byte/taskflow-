@@ -188,7 +188,7 @@ def _parse_holidays_python(raw_rows, current_year):
 
     # ── Detect columns from header row ────────────────────────────────────────
     header = [c.lower().strip() for c in raw_rows[0]]
-    date_col = name_col = centre_col = None
+    date_col = name_col = centre_col = reason_col = None
     for i, h in enumerate(header):
         if date_col is None and any(w in h for w in ("date", "day", "dt")):
             date_col = i
@@ -196,6 +196,12 @@ def _parse_holidays_python(raw_rows, current_year):
             name_col = i
         if centre_col is None and any(w in h for w in ("centre", "center", "clinic", "location", "state", "branch", "city", "region")):
             centre_col = i
+        if reason_col is None and any(w in h for w in ("reason", "type", "note", "notes", "details")):
+            reason_col = i
+
+    # Ensure reason_col doesn't clash with already-assigned columns
+    if reason_col in (date_col, name_col, centre_col):
+        reason_col = None
 
     has_header = any(col is not None for col in (date_col, name_col, centre_col))
     data_rows  = raw_rows[1:] if has_header else raw_rows
@@ -222,13 +228,14 @@ def _parse_holidays_python(raw_rows, current_year):
         date_val   = row[date_col].strip()   if date_col is not None and date_col < len(row) else ""
         name_val   = (row[name_col].strip()  if name_col is not None and name_col < len(row) else "") or "Holiday"
         centre_val = row[centre_col].strip() if centre_col is not None and centre_col < len(row) else "All"
+        reason_val = row[reason_col].strip() if reason_col is not None and reason_col < len(row) else ""
 
         if not date_val:
             continue
         date_str = _parse_date_val(date_val)
         if not date_str:
             continue
-        events.append({"date": date_str, "name": name_val, "centre": centre_val or "All"})
+        events.append({"date": date_str, "name": name_val, "centre": centre_val or "All", "reason": reason_val})
 
     return events
 
@@ -284,7 +291,7 @@ def load_holidays():
                 chunk_text = "\n".join(["\t".join(r) for r in chunk_rows])
                 prompt = f"""Extract all holidays and public holidays from this Google Sheet data.
 Return ONLY a valid JSON array — no explanation, no markdown fences.
-Each item: {{"date": "YYYY-MM-DD", "name": "Holiday name", "centre": "Centre name or All"}}
+Each item: {{"date": "YYYY-MM-DD", "name": "Holiday name", "centre": "Centre name or All", "reason": "type/reason, e.g. National Holiday, State Holiday, Religious, Optional — leave blank if unknown"}}
 
 Rules:
 - Convert all date formats to YYYY-MM-DD. Dates may be written as DD/MM/YYYY, DD-MM-YYYY, "15 Aug 2025", etc.
@@ -322,7 +329,7 @@ Sheet data:
                         for item in parsed:
                             if item.get("date") and item.get("name"):
                                 for c in normalize_centre(item.get("centre", "All")):
-                                    events.append({"date": item["date"], "name": item["name"], "centre": c})
+                                    events.append({"date": item["date"], "name": item["name"], "centre": c, "reason": item.get("reason", "")})
                 except Exception as e:
                     errors.append(f"Chunk {chunk_idx+1}/{len(chunks)} parse failed: {type(e).__name__}: {e}")
             used_ai = True
@@ -335,7 +342,7 @@ Sheet data:
         py_events = _parse_holidays_python(raw_rows, current_year)
         for item in py_events:
             for c in normalize_centre(item.get("centre", "All")):
-                events.append({"date": item["date"], "name": item["name"], "centre": c})
+                events.append({"date": item["date"], "name": item["name"], "centre": c, "reason": item.get("reason", "")})
 
     # ── 4. Deduplicate ────────────────────────────────────────────────────────
     seen   = set()
@@ -474,7 +481,7 @@ def save_task(task):
     except Exception as e:
         st.error(f"Save failed: {e}"); return False
 
-def save_holiday(hol_date: str, hol_name: str, centres: list) -> bool:
+def save_holiday(hol_date: str, hol_name: str, centres: list, reason: str = "") -> bool:
     """Append one row per centre to the Holidays sheet tab.
     Creates a header row if the sheet is empty.
     """
@@ -490,9 +497,9 @@ def save_holiday(hol_date: str, hol_name: str, centres: list) -> bool:
             ws = sh.add_worksheet(HOLIDAY_TAB, rows=500, cols=5)
         existing = ws.get_all_values()
         if not existing:
-            ws.append_row(["Date", "Holiday Name", "Centre"], value_input_option="USER_ENTERED")
+            ws.append_row(["Date", "Holiday Name", "Centre", "Reason"], value_input_option="USER_ENTERED")
         for centre in centres:
-            ws.append_row([hol_date, hol_name, centre], value_input_option="USER_ENTERED")
+            ws.append_row([hol_date, hol_name, centre, reason], value_input_option="USER_ENTERED")
         load_holidays.clear()
         return True
     except Exception as e:
@@ -1312,10 +1319,11 @@ def main():
         with add_col:
             with st.expander("➕ Add Holiday", expanded=False):
                 with st.form("add_holiday_form", clear_on_submit=True):
-                    c1, c2  = st.columns([1, 2])
-                    h_date  = c1.date_input("Date", value=date.today(), key="hol_date")
-                    h_name  = c2.text_input("Holiday Name", placeholder="e.g. Diwali", key="hol_name")
-                    h_ctrs  = st.multiselect("Applies to", ["All"] + CENTRES, default=["All"], key="hol_ctrs")
+                    c1, c2    = st.columns([1, 2])
+                    h_date    = c1.date_input("Date", value=date.today(), key="hol_date")
+                    h_name    = c2.text_input("Holiday Name", placeholder="e.g. Diwali", key="hol_name")
+                    h_reason  = st.text_input("Reason / Type", placeholder="e.g. National Holiday, Religious, State Holiday", key="hol_reason")
+                    h_ctrs    = st.multiselect("Applies to", ["All"] + CENTRES, default=["All"], key="hol_ctrs")
                     if st.form_submit_button("💾 Save", use_container_width=True, type="primary"):
                         if not h_name.strip():
                             st.error("Name required.")
@@ -1323,7 +1331,7 @@ def main():
                             st.error("Select at least one centre.")
                         else:
                             to_save = CENTRES if "All" in h_ctrs else h_ctrs
-                            if save_holiday(h_date.strftime("%Y-%m-%d"), h_name.strip(), to_save):
+                            if save_holiday(h_date.strftime("%Y-%m-%d"), h_name.strip(), to_save, h_reason.strip()):
                                 st.success(f"✅ Saved '{h_name.strip()}'.")
                                 st.rerun()
 
@@ -1402,15 +1410,18 @@ def main():
             return centre in sel_centres or centre == "All"
 
         # ── Build event list ──────────────────────────────────────────────────
-        from collections import defaultdict
-        hol_groups = defaultdict(list)
+        hol_groups = {}   # (date, name) → {"centres": [...], "reason": "..."}
         for h in holidays:
-            hol_groups[(h["date"], h["name"])].append(h["centre"])
+            key = (h["date"], h["name"])
+            if key not in hol_groups:
+                hol_groups[key] = {"centres": [], "reason": h.get("reason", "")}
+            hol_groups[key]["centres"].append(h["centre"])
 
         cal_events = []
 
-        for (hdate, hname), centres in hol_groups.items():
-            centres        = list(dict.fromkeys(centres))
+        for (hdate, hname), info in hol_groups.items():
+            centres        = list(dict.fromkeys(info["centres"]))
+            reason         = info["reason"]
             is_sunday      = hname == "Sunday"
             is_saturday    = _is_saturday(hdate)
             is_working_day = hname == "Working Day"
@@ -1453,7 +1464,7 @@ def main():
                 "color":         color,
                 "display":       display,
                 "textColor":     "#fff",
-                "extendedProps": {"centres": centres},
+                "extendedProps": {"centres": centres, "reason": reason},
             })
 
         for ev in gcal_evs:
@@ -1486,11 +1497,13 @@ def main():
             }
             cal_state = st_calendar(events=cal_events, options=cal_options, key="main_calendar")
             if cal_state and cal_state.get("eventClick"):
-                ev_info   = cal_state["eventClick"].get("event", {})
-                ep        = ev_info.get("extendedProps", {})
-                centres   = ep.get("centres", [])
-                ctr_label = f"  |  **Centres:** {', '.join(centres)}" if centres and centres != ["All"] else ""
-                st.info(f"**{ev_info.get('title','')}**  |  {ev_info.get('start','')[:10]}{ctr_label}")
+                ev_info      = cal_state["eventClick"].get("event", {})
+                ep           = ev_info.get("extendedProps", {})
+                centres      = ep.get("centres", [])
+                reason       = ep.get("reason", "")
+                ctr_label    = f"  |  **Centres:** {', '.join(centres)}" if centres and centres != ["All"] else ""
+                reason_label = f"  |  *{reason}*" if reason else ""
+                st.info(f"**{ev_info.get('title','')}**  |  {ev_info.get('start','')[:10]}{ctr_label}{reason_label}")
 
         except ImportError:
             st.warning("Install `streamlit-calendar` for the visual calendar. Showing list view:")
