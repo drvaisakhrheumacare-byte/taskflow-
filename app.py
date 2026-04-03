@@ -639,7 +639,7 @@ def main():
                     if col not in subset.columns: subset[col] = ""
                 st.markdown(f"**{stype}**")
                 st.dataframe(
-                    subset[SERVER_DISPLAY_COLS].style.applymap(color_status, subset=["Status"]),
+                    subset[SERVER_DISPLAY_COLS].style.map(color_status, subset=["Status"]),
                     use_container_width=True, hide_index=True
                 )
 
