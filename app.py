@@ -48,7 +48,8 @@ PING_SERVERS_TAB   = "ServerStatus"
 SERVER_TYPE_ORDER  = ["Main Server","Backup Server","Bitvoice Gateway","Bitvoice Server"]
 SERVER_DISPLAY_COLS= ["Centre","Status","Timestamp","ResponseTime(ms)","Server IP","Last Online"]
 
-HOLIDAY_SHEET_ID   = "1dn9uXm0sY8hUgkZ01uf5YDazkbp0S2IP8-beg2C7krY"
+HOLIDAY_SHEET_ID   = PING_SHEET_ID   # Holidays tab lives in the same sheet as ServerStatus
+HOLIDAY_TAB        = "Holidays"
 GCAL_SCOPES        = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 @st.cache_resource(ttl=300)
@@ -132,9 +133,11 @@ def load_holidays():
         return events, errors
 
     try:
-        sh = gs_client.open_by_key(HOLIDAY_SHEET_ID)
+        sh  = gs_client.open_by_key(HOLIDAY_SHEET_ID)
+        ws  = sh.worksheet(HOLIDAY_TAB)
+        raw_rows = ws.get_all_values()
     except Exception as e:
-        errors.append(f"Cannot open holiday sheet ({HOLIDAY_SHEET_ID}): {type(e).__name__}: {e}")
+        errors.append(f"Cannot read '{HOLIDAY_TAB}' tab: {type(e).__name__}: {e}")
         return events, errors
 
     try:
@@ -143,50 +146,48 @@ def load_holidays():
         errors.append(f"Claude API init failed: {type(e).__name__}: {e}")
         return events, errors
 
-    current_year = datetime.now().year
-    for ws in sh.worksheets():
-        tab_name = ws.title
-        try:
-            raw_rows = ws.get_all_values()
-            if not raw_rows:
-                continue
-            raw_text = "\n".join(["\t".join(row) for row in raw_rows])
+    if not raw_rows:
+        errors.append(f"'{HOLIDAY_TAB}' tab appears empty.")
+        return events, errors
 
-            resp = ai.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": f"""Extract all holidays and public holidays from this Google Sheet data.
+    current_year = datetime.now().year
+    raw_text = "\n".join(["\t".join(row) for row in raw_rows])
+    try:
+        resp = ai.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": f"""Extract all holidays and public holidays from this Google Sheet data.
 Return ONLY a valid JSON array — no explanation, no markdown fences.
 Each item: {{"date": "YYYY-MM-DD", "name": "Holiday name", "centre": "Centre name or All"}}
 
 Rules:
-- Convert all date formats to YYYY-MM-DD. Dates may be written as DD/MM/YYYY, DD-MM-YYYY, "15 Aug", etc.
+- Convert all date formats to YYYY-MM-DD. Dates may be written as DD/MM/YYYY, DD-MM-YYYY, "15 Aug 2025", etc.
 - If year is missing, assume {current_year}
-- If the sheet covers all centres or there is no specific centre column, set centre to "All"
-- If the tab name looks like a centre or state name, use it as the centre for all events in this tab
-- Ignore empty rows, headers, totals
-- Tab name: "{tab_name}"
+- If a row has no specific centre, set centre to "All"
+- If there is a centre/state/location column, use its value as the centre
+- Ignore empty rows, headers, totals, and non-date rows
+- There may be multiple centres in the same sheet — extract all rows
 
 Sheet data:
 {raw_text}"""}]
-            )
-
-            raw_json = resp.content[0].text.strip()
-            if raw_json.startswith("```"):
-                raw_json = raw_json.split("```")[-2] if raw_json.count("```") >= 2 else raw_json.replace("```json","").replace("```","")
-            raw_json = raw_json.strip()
-            parsed = json.loads(raw_json)
-            if isinstance(parsed, list):
-                for item in parsed:
-                    if item.get("date") and item.get("name"):
-                        events.append({
-                            "date":   item["date"],
-                            "name":   item["name"],
-                            "centre": item.get("centre", tab_name),
-                        })
-        except Exception as e:
-            errors.append(f"Tab '{tab_name}': {type(e).__name__}: {e}")
-            continue
+        )
+        raw_json = resp.content[0].text.strip()
+        if "```" in raw_json:
+            raw_json = raw_json.split("```")[1]
+            if raw_json.startswith("json"):
+                raw_json = raw_json[4:]
+        raw_json = raw_json.strip()
+        parsed = json.loads(raw_json)
+        if isinstance(parsed, list):
+            for item in parsed:
+                if item.get("date") and item.get("name"):
+                    events.append({
+                        "date":   item["date"],
+                        "name":   item["name"],
+                        "centre": item.get("centre", "All"),
+                    })
+    except Exception as e:
+        errors.append(f"Claude parse failed: {type(e).__name__}: {e}")
 
     return events, errors
 
