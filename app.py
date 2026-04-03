@@ -108,7 +108,7 @@ def load_servers():
         st.error(f"Server data error: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400)
 def load_holidays():
     """Load holidays from sheet (via Claude AI to handle irregular formats) + auto-add all Sundays."""
     import anthropic, json
@@ -761,6 +761,11 @@ def main():
             '</div>',
             unsafe_allow_html=True,
         )
+
+        # ── Refresh button (holidays cached 24h; click to force reload) ──────
+        if st.button("🔄 Refresh Holidays", help="Re-reads the holiday sheet — use when new centres/tabs are added"):
+            load_holidays.clear()
+            st.rerun()
 
         # ── Load data ─────────────────────────────────────────
         with st.spinner("Loading calendar…"):
