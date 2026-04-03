@@ -469,18 +469,18 @@ def main():
           <div class="met"><div class="mn" style="color:#6EE7B7">{dn}</div><div class="ml">Done</div></div>
         </div>""", unsafe_allow_html=True)
 
-    t1,t2,t3,t4,t5,t6 = st.tabs(["📋 All Tasks","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor"])
+    t1,t2,t3,t4,t5,t6 = st.tabs(["🗂️ Active","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor"])
 
     with t1:
-        if filt.empty:
-            st.info("No tasks found. Load tasks or let the Gmail scanner populate automatically.")
+        active = filt[~filt["Status"].isin(["Done","Rejected","On Hold","Not Mine"])]
+        if active.empty:
+            st.success("🎉 No active tasks!")
         else:
             for centre in CENTRES:
-                cdf = filt[filt["Centre"]==centre]
+                cdf = active[active["Centre"]==centre]
                 if cdf.empty: continue
-                act = cdf[~cdf["Status"].isin(["Done","Rejected"])]
                 clr = CENTRE_COLORS.get(centre,"#2563EB")
-                st.markdown(f'<div class="ch" style="color:{clr}">🏥 {centre.upper()} · {len(act)} active</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="ch" style="color:{clr}">🏥 {centre.upper()} · {len(cdf)} active</div>', unsafe_allow_html=True)
                 for _,row in cdf.sort_values(["Days Overdue","Priority"],ascending=[False,True]).iterrows():
                     task_card(row, pfx="t1_")
 
