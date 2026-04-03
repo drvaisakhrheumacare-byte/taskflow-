@@ -242,111 +242,63 @@ def _parse_holidays_python(raw_rows, current_year):
 
 @st.cache_data(ttl=3600)
 def load_holidays():
-    """Load holidays from sheet + auto-add all Sundays.
-    Uses Claude AI to parse irregular formats when available; falls back to Python parser.
-    Returns (events_list, errors_list, raw_text)."""
-    import json
-
+    """Load holidays from Holidays tab + auto-add Sundays.
+    Returns (events_list, errors_list, raw_text).
+    """
     events = []
     errors = []
 
-    # ── 1. All Sundays for current + next year are holidays for all centres ──
+    # ── 1. Sundays for current + next year ────────────────────────────────────
     for yr in [datetime.now().year, datetime.now().year + 1]:
         d = date(yr, 1, 1)
         while d.year == yr:
-            if d.weekday() == 6:  # Sunday
-                events.append({"date": d.strftime("%Y-%m-%d"), "name": "Sunday", "centre": "All"})
+            if d.weekday() == 6:
+                events.append({"date": d.strftime("%Y-%m-%d"), "name": "Sunday", "centre": "All", "reason": ""})
             d += timedelta(days=1)
 
-    # ── 2. Read the sheet ─────────────────────────────────────────────────────
+    # ── 2. Open sheet — case-insensitive tab lookup ───────────────────────────
     gs_client = get_client()
     if not gs_client:
         errors.append("Google Sheets client unavailable.")
         return events, errors, ""
 
     try:
-        sh       = gs_client.open_by_key(HOLIDAY_SHEET_ID)
-        ws       = sh.worksheet(HOLIDAY_TAB)
+        sh = gs_client.open_by_key(HOLIDAY_SHEET_ID)
+        ws = None
+        for worksheet in sh.worksheets():
+            if worksheet.title.strip().lower() == HOLIDAY_TAB.lower():
+                ws = worksheet
+                break
+        if ws is None:
+            available = ", ".join(w.title for w in sh.worksheets())
+            errors.append(f"Tab '{HOLIDAY_TAB}' not found. Tabs in sheet: {available}")
+            return events, errors, ""
         raw_rows = ws.get_all_values()
     except Exception as e:
-        errors.append(f"Cannot read '{HOLIDAY_TAB}' tab: {type(e).__name__}: {e}")
+        errors.append(f"Sheet read error: {type(e).__name__}: {e}")
         return events, errors, ""
 
     if not raw_rows:
-        errors.append(f"'{HOLIDAY_TAB}' tab appears empty.")
+        errors.append(f"'{HOLIDAY_TAB}' tab is empty.")
         return events, errors, ""
 
-    current_year = datetime.now().year
-    raw_text     = "\n".join(["\t".join(row) for row in raw_rows])
+    raw_text = "\n".join(["\t".join(r) for r in raw_rows])
 
-    # ── 3a. Try Claude AI parser (handles truly irregular layouts) ────────────
-    ai_key = _get_anthropic_key()
-    used_ai = False
-    if ai_key:
-        try:
-            import anthropic
-            ai = anthropic.Anthropic(api_key=ai_key)
-
-            def _parse_chunk(chunk_rows):
-                chunk_text = "\n".join(["\t".join(r) for r in chunk_rows])
-                prompt = f"""Extract all holidays and public holidays from this Google Sheet data.
-Return ONLY a valid JSON array — no explanation, no markdown fences.
-Each item: {{"date": "YYYY-MM-DD", "name": "Holiday name", "centre": "Centre name or All", "reason": "type/reason, e.g. National Holiday, State Holiday, Religious, Optional — leave blank if unknown"}}
-
-Rules:
-- Convert all date formats to YYYY-MM-DD. Dates may be written as DD/MM/YYYY, DD-MM-YYYY, "15 Aug 2025", etc.
-- If year is missing, assume {current_year}
-- If a row has no specific centre, set centre to "All"
-- If there is a centre/state/location column, use its value as the centre
-- Ignore empty rows, headers, totals, and non-date rows
-- There may be multiple centres in the same sheet — extract all rows
-
-Sheet data:
-{chunk_text}"""
-                resp = ai.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=4096,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                if resp.stop_reason == "max_tokens":
-                    return None, "truncated"
-                raw = resp.content[0].text.strip()
-                if "```" in raw:
-                    raw = raw.split("```")[1]
-                    if raw.startswith("json"):
-                        raw = raw[4:]
-                return json.loads(raw.strip()), None
-
-            CHUNK_SIZE = 60
-            chunks = [raw_rows[i:i+CHUNK_SIZE] for i in range(0, len(raw_rows), CHUNK_SIZE)]
-            for chunk_idx, chunk in enumerate(chunks):
-                try:
-                    parsed, err = _parse_chunk(chunk)
-                    if err:
-                        errors.append(f"Chunk {chunk_idx+1}/{len(chunks)} was truncated — some holidays may be missing.")
-                        continue
-                    if isinstance(parsed, list):
-                        for item in parsed:
-                            if item.get("date") and item.get("name"):
-                                for c in normalize_centre(item.get("centre", "All")):
-                                    events.append({"date": item["date"], "name": item["name"], "centre": c, "reason": item.get("reason", "")})
-                except Exception as e:
-                    errors.append(f"Chunk {chunk_idx+1}/{len(chunks)} parse failed: {type(e).__name__}: {e}")
-            used_ai = True
-        except Exception as e:
-            errors.append(f"Claude API init failed: {type(e).__name__}: {e}")
-
-    # ── 3b. Python fallback (no API key needed) ───────────────────────────────
-    if not used_ai:
-        errors.append("Anthropic API key not set — using built-in date parser for holidays.")
-        py_events = _parse_holidays_python(raw_rows, current_year)
-        for item in py_events:
-            for c in normalize_centre(item.get("centre", "All")):
-                events.append({"date": item["date"], "name": item["name"], "centre": c, "reason": item.get("reason", "")})
+    # ── 3. Parse with Python parser ───────────────────────────────────────────
+    py_events = _parse_holidays_python(raw_rows, datetime.now().year)
+    if not py_events:
+        errors.append(f"Parser returned 0 holidays. First row of sheet: {raw_rows[0]}")
+    for item in py_events:
+        for c in normalize_centre(item.get("centre", "All")):
+            events.append({
+                "date":   item["date"],
+                "name":   item["name"],
+                "centre": c,
+                "reason": item.get("reason", ""),
+            })
 
     # ── 4. Deduplicate ────────────────────────────────────────────────────────
-    seen   = set()
-    deduped = []
+    seen, deduped = set(), []
     for e in events:
         key = (e["date"], e["name"], e["centre"])
         if key not in seen:
