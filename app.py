@@ -217,9 +217,13 @@ def _parse_holidays_python(raw_rows, current_year):
         if date_col is None:
             date_col = 0  # last resort
 
-    # If no name column found (or it conflicts), there is no name in the sheet
+    # If no name column found, fall back to using the reason column as the name
     if name_col is None or name_col == date_col or name_col == centre_col:
-        name_col = None  # will use default "Holiday"
+        if reason_col is not None and reason_col not in (date_col, centre_col):
+            name_col   = reason_col  # Reason column doubles as the holiday name
+            reason_col = None
+        else:
+            name_col = None  # will use default "Holiday"
 
     # ── Parse rows ────────────────────────────────────────────────────────────
     for row in data_rows:
