@@ -48,6 +48,9 @@ PING_SERVERS_TAB   = "ServerStatus"
 SERVER_TYPE_ORDER  = ["Main Server","Backup Server","Bitvoice Gateway","Bitvoice Server"]
 SERVER_DISPLAY_COLS= ["Centre","Status","Timestamp","ResponseTime(ms)","Server IP","Last Online"]
 
+HOLIDAY_SHEET_ID   = "1dn9uXm0sY8hUgkZ01uf5YDazkbp0S2IP8-beg2C7krY"
+GCAL_SCOPES        = ["https://www.googleapis.com/auth/calendar.readonly"]
+
 @st.cache_resource(ttl=300)
 def get_client():
     try:
@@ -104,6 +107,70 @@ def load_servers():
     except Exception as e:
         st.error(f"Server data error: {e}")
         return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def load_holidays():
+    """Load holiday/event data from all tabs of the holiday sheet. Each tab = a centre."""
+    client = get_client()
+    if not client:
+        return []
+    try:
+        sh = client.open_by_key(HOLIDAY_SHEET_ID)
+        events = []
+        for ws in sh.worksheets():
+            try:
+                records = ws.get_all_records(default_blank="")
+                tab_name = ws.title
+                for r in records:
+                    date_val = name_val = centre_val = ""
+                    for k, v in r.items():
+                        kl = str(k).lower().strip()
+                        vs = str(v).strip()
+                        if not date_val and any(x in kl for x in ["date","day"]):
+                            date_val = vs
+                        if not name_val and any(x in kl for x in ["event","holiday","name","occasion","title","festival"]):
+                            name_val = vs
+                        if any(x in kl for x in ["centre","center","location","branch"]):
+                            centre_val = vs
+                    if not centre_val:
+                        centre_val = tab_name
+                    if date_val and name_val:
+                        try:
+                            parsed = pd.to_datetime(date_val, dayfirst=True, errors="coerce")
+                            if pd.notna(parsed):
+                                events.append({"date": parsed.strftime("%Y-%m-%d"), "name": name_val, "centre": centre_val})
+                        except Exception:
+                            pass
+            except Exception:
+                continue
+        return events
+    except Exception as e:
+        st.warning(f"Could not load holidays: {e}")
+        return []
+
+@st.cache_data(ttl=300)
+def load_gcal_events(year, month):
+    """Load events from the work Google Calendar for the given month."""
+    try:
+        from googleapiclient.discovery import build
+        from google.oauth2.service_account import Credentials as SACredentials
+        creds = SACredentials.from_service_account_info(
+            st.secrets["gcp_service_account"], scopes=GCAL_SCOPES
+        )
+        service = build("calendar", "v3", credentials=creds)
+        start_dt = datetime(year, month, 1, tzinfo=timezone.utc)
+        end_dt   = datetime(year + (month // 12), (month % 12) + 1, 1, tzinfo=timezone.utc)
+        result = service.events().list(
+            calendarId=MY_EMAIL,
+            timeMin=start_dt.isoformat(),
+            timeMax=end_dt.isoformat(),
+            singleEvents=True,
+            orderBy="startTime",
+            maxResults=250,
+        ).execute()
+        return result.get("items", [])
+    except Exception:
+        return []
 
 def save_task(task):
     ws = get_ws()
@@ -469,7 +536,7 @@ def main():
           <div class="met"><div class="mn" style="color:#6EE7B7">{dn}</div><div class="ml">Done</div></div>
         </div>""", unsafe_allow_html=True)
 
-    t1,t2,t3,t4,t5,t6 = st.tabs(["🗂️ Active","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor"])
+    t1,t2,t3,t4,t5,t6,t7 = st.tabs(["🗂️ Active","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor","📅 Calendar"])
 
     with t1:
         active = filt[~filt["Status"].isin(["Done","Rejected","On Hold","Not Mine"])]
@@ -646,6 +713,94 @@ def main():
                     subset[SERVER_DISPLAY_COLS].style.map(color_status, subset=["Status"]),
                     use_container_width=True, hide_index=True
                 )
+
+    with t7:
+        st.markdown("### 📅 Calendar")
+
+        # ── Colour legend ─────────────────────────────────────
+        st.markdown(
+            '<div style="display:flex;gap:16px;margin-bottom:8px;font-size:12px">'
+            '<span style="background:#2563EB;color:#fff;padding:2px 10px;border-radius:20px">● Work Events</span>'
+            '<span style="background:#059669;color:#fff;padding:2px 10px;border-radius:20px">● Holidays</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Load data ─────────────────────────────────────────
+        with st.spinner("Loading calendar…"):
+            holidays   = load_holidays()
+            now_dt     = datetime.now()
+            gcal_evs   = load_gcal_events(now_dt.year, now_dt.month)
+
+        # ── Build event list for streamlit-calendar ────────────
+        cal_events = []
+
+        for h in holidays:
+            cal_events.append({
+                "title":   f"🎉 {h['name']} · {h['centre']}",
+                "start":   h["date"],
+                "allDay":  True,
+                "color":   "#059669",
+                "display": "block",
+            })
+
+        for ev in gcal_evs:
+            s_info = ev.get("start", {})
+            e_info = ev.get("end",   {})
+            start  = s_info.get("dateTime") or s_info.get("date", "")
+            end    = e_info.get("dateTime") or e_info.get("date", "")
+            if not start:
+                continue
+            cal_events.append({
+                "title": ev.get("summary", "(No title)"),
+                "start": start,
+                "end":   end or start,
+                "color": "#2563EB",
+            })
+
+        # ── Render calendar ───────────────────────────────────
+        try:
+            from streamlit_calendar import calendar as st_calendar
+            cal_options = {
+                "initialView":    "dayGridMonth",
+                "initialDate":    now_dt.strftime("%Y-%m-%d"),
+                "headerToolbar":  {
+                    "left":   "prev,next today",
+                    "center": "title",
+                    "right":  "dayGridMonth,listMonth",
+                },
+                "height":         650,
+                "navLinks":       True,
+                "dayMaxEvents":   True,
+                "eventDisplay":   "block",
+            }
+            cal_state = st_calendar(events=cal_events, options=cal_options, key="main_calendar")
+
+            # Show clicked event detail
+            if cal_state and cal_state.get("eventClick"):
+                ev_info = cal_state["eventClick"].get("event", {})
+                st.info(f"**{ev_info.get('title','')}**  |  {ev_info.get('start','')[:10]}")
+
+        except ImportError:
+            # Fallback list view if package not installed yet
+            st.warning("Install `streamlit-calendar` to see the visual calendar. Showing list view:")
+            merged = sorted(cal_events, key=lambda x: x["start"])
+            if not merged:
+                st.info("No events found.")
+            for ev in merged:
+                icon = "🎉" if ev.get("color") == "#059669" else "📌"
+                st.markdown(f"{icon} **{ev['start'][:10]}** — {ev['title']}")
+
+        # ── Quick legend / instructions ───────────────────────
+        with st.expander("ℹ️ Setup notes", expanded=False):
+            st.markdown(f"""
+**Work Calendar:** Events load from `{MY_EMAIL}` via the service account.
+To enable this, share your Google Calendar with the service account:
+> `taskflow-bot@taskflow-490709.iam.gserviceaccount.com` (Viewer access)
+
+**Holidays:** Loaded from the [Holiday Sheet](https://docs.google.com/spreadsheets/d/{HOLIDAY_SHEET_ID}/edit).
+Each worksheet tab should have columns named `Date`, `Event/Holiday`, and optionally `Centre`.
+""")
 
 if __name__=="__main__": main()
 # ── NATIVE STREAMLIT AUTO-REFRESH ─────────────────────────────
