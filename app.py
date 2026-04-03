@@ -110,10 +110,12 @@ def load_servers():
 
 @st.cache_data(ttl=86400)
 def load_holidays():
-    """Load holidays from sheet (via Claude AI to handle irregular formats) + auto-add all Sundays."""
+    """Load holidays from sheet (via Claude AI to handle irregular formats) + auto-add all Sundays.
+    Returns (events_list, errors_list)."""
     import anthropic, json
 
     events = []
+    errors = []
 
     # ── 1. All Sundays for current + next year are holidays for all centres ──
     for yr in [datetime.now().year, datetime.now().year + 1]:
@@ -126,62 +128,67 @@ def load_holidays():
     # ── 2. Load sheet data and parse with Claude ──────────────────────────────
     gs_client = get_client()
     if not gs_client:
-        return events
+        errors.append("Google Sheets client unavailable.")
+        return events, errors
+
     try:
         sh = gs_client.open_by_key(HOLIDAY_SHEET_ID)
+    except Exception as e:
+        errors.append(f"Cannot open holiday sheet ({HOLIDAY_SHEET_ID}): {type(e).__name__}: {e}")
+        return events, errors
+
+    try:
+        ai = anthropic.Anthropic(api_key=st.secrets["anthropic"]["api_key"])
+    except Exception as e:
+        errors.append(f"Claude API init failed: {type(e).__name__}: {e}")
+        return events, errors
+
+    current_year = datetime.now().year
+    for ws in sh.worksheets():
+        tab_name = ws.title
         try:
-            ai = anthropic.Anthropic(api_key=st.secrets["anthropic"]["api_key"])
-        except Exception:
-            return events
+            raw_rows = ws.get_all_values()
+            if not raw_rows:
+                continue
+            raw_text = "\n".join(["\t".join(row) for row in raw_rows])
 
-        current_year = datetime.now().year
-        for ws in sh.worksheets():
-            try:
-                raw_rows = ws.get_all_values()
-                if not raw_rows:
-                    continue
-                tab_name = ws.title
-                raw_text = "\n".join(["\t".join(row) for row in raw_rows])
-
-                resp = ai.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=2048,
-                    messages=[{"role": "user", "content": f"""Extract all holidays/events from this Google Sheet data.
+            resp = ai.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": f"""Extract all holidays and public holidays from this Google Sheet data.
 Return ONLY a valid JSON array — no explanation, no markdown fences.
 Each item: {{"date": "YYYY-MM-DD", "name": "Holiday name", "centre": "Centre name or All"}}
 
 Rules:
-- Convert all date formats to YYYY-MM-DD
+- Convert all date formats to YYYY-MM-DD. Dates may be written as DD/MM/YYYY, DD-MM-YYYY, "15 Aug", etc.
 - If year is missing, assume {current_year}
-- If the sheet covers all centres or no specific centre, set centre to "All"
-- If the tab name looks like a centre name, use it as the centre
+- If the sheet covers all centres or there is no specific centre column, set centre to "All"
+- If the tab name looks like a centre or state name, use it as the centre for all events in this tab
+- Ignore empty rows, headers, totals
 - Tab name: "{tab_name}"
 
 Sheet data:
 {raw_text}"""}]
-                )
+            )
 
-                raw_json = resp.content[0].text.strip()
-                # Strip markdown code fences if present
-                if raw_json.startswith("```"):
-                    raw_json = raw_json.split("```")[1]
-                    if raw_json.startswith("json"):
-                        raw_json = raw_json[4:]
-                parsed = json.loads(raw_json)
-                if isinstance(parsed, list):
-                    for item in parsed:
-                        if item.get("date") and item.get("name"):
-                            events.append({
-                                "date":   item["date"],
-                                "name":   item["name"],
-                                "centre": item.get("centre", tab_name),
-                            })
-            except Exception:
-                continue
-    except Exception as e:
-        st.warning(f"Could not load holidays: {e}")
+            raw_json = resp.content[0].text.strip()
+            if raw_json.startswith("```"):
+                raw_json = raw_json.split("```")[-2] if raw_json.count("```") >= 2 else raw_json.replace("```json","").replace("```","")
+            raw_json = raw_json.strip()
+            parsed = json.loads(raw_json)
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if item.get("date") and item.get("name"):
+                        events.append({
+                            "date":   item["date"],
+                            "name":   item["name"],
+                            "centre": item.get("centre", tab_name),
+                        })
+        except Exception as e:
+            errors.append(f"Tab '{tab_name}': {type(e).__name__}: {e}")
+            continue
 
-    return events
+    return events, errors
 
 @st.cache_data(ttl=300)
 def load_gcal_events(year, month):
@@ -769,23 +776,47 @@ def main():
 
         # ── Load data ─────────────────────────────────────────
         with st.spinner("Loading calendar…"):
-            holidays   = load_holidays()
-            now_dt     = datetime.now()
-            gcal_evs   = load_gcal_events(now_dt.year, now_dt.month)
+            holidays, hol_errors = load_holidays()
+            now_dt   = datetime.now()
+            gcal_evs = load_gcal_events(now_dt.year, now_dt.month)
+
+        # ── Centre filter + Sunday toggle ─────────────────────
+        named_hols    = [h for h in holidays if h["name"] != "Sunday"]
+        hol_centres   = sorted({h["centre"] for h in named_hols if h["centre"] not in ("All", "")})
+        fc1, fc2 = st.columns([3, 1])
+        with fc1:
+            sel_centres = st.multiselect(
+                "Filter holidays by centre",
+                options=["All"] + hol_centres,
+                default=["All"],
+                key="cal_ctr_filter",
+                placeholder="Select centres…",
+            )
+        with fc2:
+            show_sundays = st.checkbox("Show Sundays", value=True, key="cal_show_sun")
+
+        def _show_holiday(h):
+            if h["name"] == "Sunday":
+                return show_sundays
+            if not sel_centres or "All" in sel_centres:
+                return True
+            return h["centre"] in sel_centres or h["centre"] == "All"
 
         # ── Build event list for streamlit-calendar ────────────
         cal_events = []
 
         for h in holidays:
+            if not _show_holiday(h):
+                continue
             is_sunday = h["name"] == "Sunday"
             centre_label = f" · {h['centre']}" if h["centre"] not in ("All", "") and not is_sunday else ""
             cal_events.append({
-                "title":           "🔴 Sunday" if is_sunday else f"🎉 {h['name']}{centre_label}",
-                "start":           h["date"],
-                "allDay":          True,
-                "color":           "#DC2626" if is_sunday else "#059669",
-                "display":         "background" if is_sunday else "block",
-                "textColor":       "#fff",
+                "title":   "Sunday" if is_sunday else f"🎉 {h['name']}{centre_label}",
+                "start":   h["date"],
+                "allDay":  True,
+                "color":   "#DC2626" if is_sunday else "#059669",
+                "display": "background" if is_sunday else "block",
+                "textColor": "#fff",
             })
 
         for ev in gcal_evs:
@@ -835,15 +866,23 @@ def main():
                 icon = "🎉" if ev.get("color") == "#059669" else "📌"
                 st.markdown(f"{icon} **{ev['start'][:10]}** — {ev['title']}")
 
-        # ── Quick legend / instructions ───────────────────────
+        # ── Debug / diagnostics ───────────────────────────────
+        with st.expander("🔍 Holiday load diagnostics", expanded=bool(hol_errors)):
+            st.markdown(f"**Named holidays loaded:** {len(named_hols)}  |  **Centres found:** {', '.join(hol_centres) or 'none'}")
+            st.markdown(f"[Open Holiday Sheet](https://docs.google.com/spreadsheets/d/{HOLIDAY_SHEET_ID}/edit)")
+            if hol_errors:
+                st.error("Errors during holiday load:")
+                for err in hol_errors:
+                    st.code(err)
+            else:
+                st.success("Holiday sheet loaded successfully.")
         with st.expander("ℹ️ Setup notes", expanded=False):
             st.markdown(f"""
 **Work Calendar:** Events load from `{MY_EMAIL}` via the service account.
-To enable this, share your Google Calendar with the service account:
-> `taskflow-bot@taskflow-490709.iam.gserviceaccount.com` (Viewer access)
+Share your Google Calendar with `taskflow-bot@taskflow-490709.iam.gserviceaccount.com` (Viewer access).
 
 **Holidays:** Loaded from the [Holiday Sheet](https://docs.google.com/spreadsheets/d/{HOLIDAY_SHEET_ID}/edit).
-Each worksheet tab should have columns named `Date`, `Event/Holiday`, and optionally `Centre`.
+Any format is supported — Claude AI parses each tab. Tab name is used as the centre name.
 """)
 
 if __name__=="__main__": main()
