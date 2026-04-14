@@ -14,7 +14,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # ── Config ────────────────────────────────────────────────────
-SHEET_ID  = "1yjH1pvGUcjq6VNzWUKHRYOepfiUw1pJKjZm1uIn61pE"
+SHEET_ID  = os.environ["SHEET_ID"]
 SHEET_TAB = "Master Tasks"
 SCOPES    = ["https://spreadsheets.google.com/feeds",
              "https://www.googleapis.com/auth/spreadsheets",

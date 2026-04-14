@@ -8,10 +8,10 @@ from datetime import datetime, date, timezone, timedelta
 import time
 import hashlib
 
-SHEET_ID  = "1yjH1pvGUcjq6VNzWUKHRYOepfiUw1pJKjZm1uIn61pE"
+SHEET_ID  = st.secrets.get("sheet_id", "")
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
 SHEET_TAB = "Master Tasks"
-MY_EMAIL  = "projects@rheumacare.com"
+MY_EMAIL  = st.secrets.get("my_email", "")
 
 # ── LOGIN CONFIG ──────────────────────────────────────────────
 # Credentials are loaded from Streamlit secrets.
@@ -22,14 +22,7 @@ MY_EMAIL  = "projects@rheumacare.com"
 # Passwords are compared as plain text (secrets are never exposed publicly)
 
 def get_users():
-    try:
-        return dict(st.secrets["users"])
-    except Exception:
-        # Fallback hardcoded credentials if secrets not configured
-        return {
-            "drvaisakh": "rheuma@2026",
-            "admin":     "taskflow@admin",
-        }
+    return dict(st.secrets["users"])
 
 AUTO_REFRESH_SECONDS = 30   # how often the app auto-refreshes to pick up new tasks
 
@@ -75,7 +68,7 @@ STATE_CENTRES = {
     "ap":             ["Visakhapatnam"],
 }
 
-PING_SHEET_ID      = "1uf4pqKHEAbw6ny7CVZZVMw23PTfmv0QZzdCyj4fU33c"
+PING_SHEET_ID      = st.secrets.get("ping_sheet_id", "")
 PING_SERVERS_TAB   = "ServerStatus"
 SERVER_TYPE_ORDER  = ["Main Server","Backup Server","Bitvoice Gateway","Bitvoice Server"]
 SERVER_DISPLAY_COLS= ["Centre","Status","Timestamp","ResponseTime(ms)","Server IP","Last Online"]

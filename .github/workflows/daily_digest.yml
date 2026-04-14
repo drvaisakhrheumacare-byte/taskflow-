@@ -24,6 +24,7 @@ jobs:
       - name: Send daily digest email
         env:
           GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID:                 ${{ secrets.SHEET_ID }}
           SENDER_EMAIL:             ${{ secrets.SENDER_EMAIL }}
           GMAIL_APP_PASSWORD:       ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENT_EMAIL:          ${{ secrets.RECIPIENT_EMAIL }}
