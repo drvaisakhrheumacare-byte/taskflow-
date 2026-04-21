@@ -14,6 +14,7 @@ var SHEET_ID     = "1yjH1pvGUcjq6VNzWUKHRYOepfiUw1pJKjZm1uIn61pE";
 var SHEET_TAB    = "Master Tasks";
 var MY_EMAIL     = "projects@rheumacare.com";
 var CLAUDE_MODEL = "claude-haiku-4-5-20251001";
+var SCAN_LABEL   = "TaskFlow/Processed";   // Gmail label applied to every processed thread
 
 var CENTRES = [
   "Nettoor","Kumbalam","Trivandrum","Bhubaneswar","Kannur",
@@ -44,6 +45,23 @@ function setupTriggers() {
   Logger.log("Trigger created: scanGmailAndAddTasks every 30 minutes.");
 }
 
+// ── GMAIL LABEL HELPER ─────────────────────────────────────────────────────
+/**
+ * Creates the "TaskFlow/Processed" label hierarchy if it doesn't exist,
+ * then returns the label object ready for thread.addLabel().
+ */
+function ensureLabel() {
+  var parts = SCAN_LABEL.split("/");
+  var path  = "";
+  parts.forEach(function(p) {
+    path = path ? path + "/" + p : p;
+    if (!GmailApp.getUserLabelByName(path)) {
+      GmailApp.createLabel(path);
+    }
+  });
+  return GmailApp.getUserLabelByName(SCAN_LABEL);
+}
+
 // ── MAIN FUNCTION ───────────────────────────────────────────────────────────
 function scanGmailAndAddTasks() {
   // Skip Sundays
@@ -55,12 +73,27 @@ function scanGmailAndAddTasks() {
   var props        = PropertiesService.getScriptProperties();
   var lastRunMs    = props.getProperty("LAST_RUN_MS");
   var processedIds = JSON.parse(props.getProperty("PROCESSED_IDS") || "[]");
+  var label        = ensureLabel();   // Gmail label applied to every scanned thread
 
-  var since    = lastRunMs ? new Date(parseInt(lastRunMs)) : new Date(Date.now() - 2*24*60*60*1000);
+  // Look back 36 hours to recover gracefully if a trigger run was skipped
+  var since    = lastRunMs ? new Date(parseInt(lastRunMs) - 6*60*60*1000) : new Date(Date.now() - 2*24*60*60*1000);
   var sinceStr = Utilities.formatDate(since, "GMT", "yyyy/MM/dd");
 
-  var query   = "to:" + MY_EMAIL + " after:" + sinceStr;
-  var threads = GmailApp.search(query, 0, 50);
+  // Search both direct-to and CC'd emails so nothing is missed
+  var queries  = [
+    "to:"  + MY_EMAIL + " after:" + sinceStr,
+    "cc:"  + MY_EMAIL + " after:" + sinceStr
+  ];
+  var seenThreadIds = {};   // deduplicate threads that appear in both queries
+  var threads = [];
+  queries.forEach(function(q) {
+    GmailApp.search(q, 0, 100).forEach(function(th) {
+      if (!seenThreadIds[th.getId()]) {
+        seenThreadIds[th.getId()] = true;
+        threads.push(th);
+      }
+    });
+  });
   Logger.log("Found " + threads.length + " threads since " + sinceStr);
 
   var sheet   = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_TAB);
@@ -104,6 +137,7 @@ function scanGmailAndAddTasks() {
 
     if (isNotActionable(subject, from, body)) {
       processedIds.push(msgId);
+      try { thread.addLabel(label); } catch(e) {}
       continue;
     }
 
@@ -123,6 +157,7 @@ function scanGmailAndAddTasks() {
       }
       // Thread already tracked — no new task row needed
       processedIds.push(msgId);
+      try { thread.addLabel(label); } catch(e) {}
       Utilities.sleep(300);
       continue;
     }
@@ -154,6 +189,7 @@ function scanGmailAndAddTasks() {
           case "Date Added":       row.push(Utilities.formatDate(now, "Asia/Kolkata", "yyyy-MM-dd")); break;
           case "Last Updated":     row.push(Utilities.formatDate(now, "Asia/Kolkata", "yyyy-MM-dd HH:mm")); break;
           case "Email Message ID": row.push(k === 0 ? msgId : ""); break;
+          case "Parent ID":        row.push(""); break;
           default:                 row.push("");
         }
       }
@@ -162,6 +198,7 @@ function scanGmailAndAddTasks() {
     }
 
     processedIds.push(msgId);
+    try { thread.addLabel(label); } catch(e) {}   // mark as processed in Gmail
     Utilities.sleep(500);
   }
 

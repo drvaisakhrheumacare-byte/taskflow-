@@ -34,11 +34,12 @@ const CLAUDE_API_KEY = "sk-ant-api03-NuuT0-CK2CghvD-pqGILcf-Bz0IaeYGJ15vai5catow
 const STREAMLIT_URL = "https://lkvnx8pqwynp4cjih9vana.streamlit.app/";
 // e.g. https://taskflow-drvaisakh.streamlit.app
 
+// ⚠️ Column order MUST match app.py exactly — do not reorder
 const SHEET_COLS = [
   "ID","Centre","Category","Title","Due Date","Days Overdue",
   "Status","Priority","Owner","Source","Notes",
   "Reassigned To","Date Added","Last Updated",
-  "Email Thread ID","Email Message ID"
+  "Email Message ID","Parent ID"
 ];
 
 // Senders to always ignore completely
@@ -72,7 +73,7 @@ function getSheet() {
     ws.setFrozenRows(1);
     ws.setColumnWidth(4, 400);   // Title
     ws.setColumnWidth(11, 350);  // Notes
-    ws.setColumnWidth(15, 200);  // Thread ID
+    ws.setColumnWidth(15, 180);  // Email Message ID
   }
   return ws;
 }
@@ -98,14 +99,17 @@ function getProcessedMsgIds(rows) {
 }
 
 // Returns map of threadId → {rowIndex, status, title}
+// Thread ID is stored in Notes as "ThreadID:abc123" (no dedicated column)
 function getThreadMap(rows) {
-  const tCol  = SHEET_COLS.indexOf("Email Thread ID");
+  const nCol  = SHEET_COLS.indexOf("Notes");
   const sCol  = SHEET_COLS.indexOf("Status");
   const ttCol = SHEET_COLS.indexOf("Title");
   const idCol = SHEET_COLS.indexOf("ID");
   const map   = {};
   rows.forEach((r, i) => {
-    if (r[tCol]) map[r[tCol]] = { rowIndex: i+2, status: r[sCol], title: r[ttCol], id: r[idCol] };
+    const notes    = String(r[nCol] || "");
+    const thrMatch = notes.match(/ThreadID:([^\s|\n]+)/);
+    if (thrMatch) map[thrMatch[1]] = { rowIndex: i+2, status: r[sCol], title: r[ttCol], id: r[idCol] };
   });
   return map;
 }
@@ -298,9 +302,11 @@ function scanGmailForTasks() {
   const newTasks    = [];
   const reopened    = [];
 
+  // Look back 36h so a skipped trigger run never loses emails;
+  // processedIds dedup prevents double-processing
   const queries = [
-    `to:${MY_EMAIL} newer_than:2h`,
-    `cc:${MY_EMAIL} newer_than:2h`,
+    `to:${MY_EMAIL} newer_than:36h`,
+    `cc:${MY_EMAIL} newer_than:36h`,
   ];
 
   queries.forEach(query => {
@@ -375,9 +381,11 @@ function scanGmailForTasks() {
                 task.due_date || "", 0,
                 "Pending", task.priority || "Medium",
                 "Dr. Vaisakh V S", "Email",
-                `From: ${from}\nDate: ${date_}\nSubject: ${subject}${multiNote}\n\nReason: ${task.reason}\n\n${body.substring(0,300)}`,
+                // ThreadID stored in Notes so getThreadMap can find it for dedup/reopen
+                `From: ${from}\nDate: ${date_}\nSubject: ${subject}${multiNote}\n\nReason: ${task.reason}\n\n${body.substring(0,300)}\n\nThreadID:${threadId}`,
                 "", todayIST(), nowIST(),
-                threadId, msgId
+                msgId,   // col 15 = Email Message ID  (matches app.py)
+                ""       // col 16 = Parent ID — empty, set manually via dashboard
               ];
               ws.appendRow(row);
               newTasks.push({ ...task, from, multiNote });

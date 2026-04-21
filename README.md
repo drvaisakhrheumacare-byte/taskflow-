@@ -8,9 +8,16 @@
 
 ## Step 1 — Apps Script (projects@rheumacare.com)
 1. Open TaskFlow Sheet → Extensions → Apps Script
-2. Delete existing code → paste STEP1_apps_script.js contents
+2. Delete existing code → paste **STEP1_apps_script_FINAL.js** contents
 3. Save → Run → scanNow (authorize) → Run → setupTriggers
 4. Done — Gmail scanned every 30 min automatically ✅
+
+> **One-time sheet column fix (if you had data before Apr 2026):**
+> If existing rows show tasks as sub-tasks in the dashboard, the old script
+> wrote Thread IDs into the wrong column. Clear the "Parent ID" column (col 16)
+> for all email-sourced rows that have a Gmail thread ID (looks like `17abc...`
+> not a numeric task ID) in that column.
+> New runs write correctly — msgId → col 15, empty → col 16.
 
 ## Step 2 — Google Cloud
 1. console.cloud.google.com → New project: taskflow-rheuma
