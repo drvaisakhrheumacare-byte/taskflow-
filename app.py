@@ -740,7 +740,8 @@ def css():
     .ml{font-size:9px;color:#7880A4;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
     .stButton>button{border-radius:6px!important;font-size:11px!important;padding:2px 7px!important}
     .stTabs [data-baseweb="tab-list"]{gap:4px!important}
-    .stTabs [data-baseweb="tab"]{padding:12px 18px!important;font-size:14px!important;min-height:48px!important;border-radius:8px 8px 0 0!important;cursor:pointer!important;-webkit-tap-highlight-color:transparent!important}
+    .stTabs [data-baseweb="tab-list"]{overflow-x:auto!important;flex-wrap:nowrap!important}
+    .stTabs [data-baseweb="tab"]{padding:10px 12px!important;font-size:13px!important;min-height:44px!important;border-radius:8px 8px 0 0!important;cursor:pointer!important;-webkit-tap-highlight-color:transparent!important;white-space:nowrap!important}
     .stTabs [data-baseweb="tab"]:active{opacity:.75!important}
     h1,h2,h3{margin-top:0.4rem!important;margin-bottom:0.3rem!important}
     </style>""", unsafe_allow_html=True)
@@ -1005,7 +1006,7 @@ def main():
           <div class="met"><div class="mn" style="color:#6EE7B7">{dn}</div><div class="ml">Done</div></div>
         </div>""", unsafe_allow_html=True)
 
-    t1,t2,t3,t4,t5,t6,t7,t8 = st.tabs(["🗂️ Active","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor","📅 Calendar","📋 Portfolio"])
+    t1,t2,t3,t4,t5,t6,t7,t8 = st.tabs(["🗂 Active","🔴 Overdue","📊 Centres","➕ Add","📈 Analytics","🖥 Servers","📅 Calendar","📋 Portfolio"])
 
     # IDs of tasks that are sub-tasks — excluded from top-level display
     child_ids = set(df[df["Parent ID"].astype(str).str.strip() != ""]["ID"].tolist()) if not df.empty else set()
