@@ -1005,7 +1005,7 @@ def main():
           <div class="met"><div class="mn" style="color:#6EE7B7">{dn}</div><div class="ml">Done</div></div>
         </div>""", unsafe_allow_html=True)
 
-    t1,t2,t3,t4,t5,t6,t7 = st.tabs(["🗂️ Active","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor","📅 Calendar"])
+    t1,t2,t3,t4,t5,t6,t7,t8 = st.tabs(["🗂️ Active","🔴 Overdue","📊 By Centre","➕ Add Task","📈 Analytics","🖥️ Server Monitor","📅 Calendar","📋 Portfolio"])
 
     # IDs of tasks that are sub-tasks — excluded from top-level display
     child_ids = set(df[df["Parent ID"].astype(str).str.strip() != ""]["ID"].tolist()) if not df.empty else set()
@@ -1497,6 +1497,142 @@ Share your Google Calendar with `taskflow-bot@taskflow-490709.iam.gserviceaccoun
 **Holidays:** Loaded from the [Holiday Sheet](https://docs.google.com/spreadsheets/d/{HOLIDAY_SHEET_ID}/edit).
 Any format is supported — Claude AI parses the sheet, with Python fallback if no API key is set.
 """)
+
+    with t8:
+        from html import escape as _esc
+        _df_p = filt.copy()
+        _ap   = _df_p[~_df_p["Status"].isin(["Done","Rejected","Not Mine"]) & ~_df_p["ID"].isin(child_ids)]
+        _dp   = _df_p[_df_p["Status"].isin(["Done","Rejected"]) & ~_df_p["ID"].isin(child_ids)]
+        _PORD = {"High":0,"Medium":1,"Low":2,"":3}
+
+        _ta   = len(_ap)
+        _tov  = len(_ap[_ap["Days Overdue"]>0])
+        _thi  = len(_ap[_ap["Priority"]=="High"])
+        _tmd  = len(_ap[_ap["Priority"]=="Medium"])
+        _tip  = len(_ap[_ap["Status"]=="In Progress"])
+        _toh  = len(_ap[_ap["Status"]=="On Hold"])
+        _nctr = len([c for c in CENTRES if len(_ap[_ap["Centre"]==c])>0])
+        _usr  = st.session_state.get("username","")
+        _nows = datetime.now().strftime("%d %b %Y · %H:%M")
+
+        def _grp(tasks, prio, lim):
+            if tasks.empty or lim[0]<=0: return ""
+            D  = {"High":"dot-high","Medium":"dot-med","Low":"dot-low"}
+            TC = {"High":"ti-high","Medium":"ti-med","Low":"ti-low"}
+            LC = {"High":"gl-high","Medium":"gl-med","Low":"gl-low"}
+            LB = {"High":"HIGH","Medium":"MEDIUM","Low":"LOW"}
+            out = f'<div class="grp-lbl {LC[prio]}">{LB[prio]}</div>'
+            for _, r in tasks.iterrows():
+                if lim[0]<=0: break
+                t    = _esc(str(r.get("Title",""))[:70])
+                ov   = int(r.get("Days Overdue",0))
+                st_  = str(r.get("Status",""))
+                ov_h = f'<span class="ov-tag">▲{ov}d</span>' if ov>0 else ""
+                ip_h = '<span class="ip-tag">▶</span>'        if st_=="In Progress" else ""
+                ho_h = '<span class="ho-tag">⏸</span>'        if st_=="On Hold"     else ""
+                rs_h = '<span class="rs-tag">↪</span>'        if st_=="Reassigned"  else ""
+                out += f'<div class="t-item"><span class="t-dot {D[prio]}"></span><span class="t-title {TC[prio]}">{t}</span>{ov_h}{ip_h}{ho_h}{rs_h}</div>'
+                lim[0] -= 1
+            return out
+
+        _cards = ""
+        for centre in CENTRES:
+            _ca = _ap[_ap["Centre"]==centre].copy()
+            _cd = _dp[_dp["Centre"]==centre]
+            if _ca.empty and _cd.empty: continue
+            clr  = CENTRE_COLORS.get(centre,"#2563EB")
+            na   = len(_ca)
+            nov  = len(_ca[_ca["Days Overdue"]>0])
+            nhi  = len(_ca[_ca["Priority"]=="High"])
+            nd   = len(_cd)
+            nt   = na + nd
+            pct  = int(nd/nt*100) if nt else 0
+            _ca["_po"] = _ca["Priority"].map(lambda x: _PORD.get(x,3))
+            _ca = _ca.sort_values(["_po","Days Overdue"], ascending=[True,False])
+            lim  = [8]
+            th   = _grp(_ca[_ca["Priority"]=="High"],                      "High",   lim)
+            tm   = _grp(_ca[_ca["Priority"]=="Medium"],                     "Medium", lim)
+            tl   = _grp(_ca[~_ca["Priority"].isin(["High","Medium"])],      "Low",    lim)
+            shown = 8 - lim[0]
+            rem   = na - shown
+            more  = f'<div class="p-more">+{rem} more tasks</div>' if rem>0 else ""
+            cats  = _ca["Category"].value_counts().head(3)
+            pills = "".join([f'<span class="c-pill">{c}</span>' for c in cats.index])
+            ob    = f'<span class="ov-hdrbdg">⚠ {nov}</span>' if nov else ""
+            hb    = f'<span class="hi-hdrbdg">★ {nhi}</span>' if nhi else ""
+            _cards += f'''<div class="ccard" style="--clr:{clr};border-top-color:{clr}">
+<div class="ccard-top"><span class="cname">{centre}</span><span class="cbdgs">{ob}{hb}</span></div>
+<div class="cstats">
+  <div class="cs"><span class="csn" style="color:{clr}">{na}</span><span class="csl">Active</span></div>
+  <div class="cs"><span class="csn" style="color:#F87171">{nov}</span><span class="csl">Overdue</span></div>
+  <div class="cs"><span class="csn" style="color:#6EE7B7">{nd}</span><span class="csl">Done</span></div>
+  <div class="cs"><span class="csn" style="color:#9CA3AF">{pct}%</span><span class="csl">Closed</span></div>
+</div>
+<div class="prog-wrap"><div class="prog-bar" style="width:{pct}%;background:{clr}"></div></div>
+<div class="tlist">{th}{tm}{tl}{more}</div>
+<div class="cftr">{pills}</div>
+</div>'''
+
+        st.markdown(f'''<style>
+.pw{{font-family:"DM Sans",sans-serif;padding:4px 0 40px}}
+.phdr{{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.07)}}
+.ptitle{{font-size:22px;font-weight:700;color:#E8EAFF;letter-spacing:-.3px}}
+.psub{{font-size:12px;color:#7880A4;margin-top:3px}}
+.pts{{font-size:12px;color:#7880A4;text-align:right;line-height:1.8}}
+.smry{{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:24px}}
+.sm{{background:#1C2030;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 10px;text-align:center}}
+.smn{{font-family:"JetBrains Mono",monospace;font-size:24px;font-weight:700;display:block;line-height:1}}
+.sml{{font-size:9.5px;color:#7880A4;text-transform:uppercase;letter-spacing:.5px;margin-top:5px;display:block}}
+.cgrid{{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}}
+.ccard{{background:#1C2030;border:1px solid rgba(255,255,255,.08);border-radius:12px;border-top:3px solid;padding:16px 16px 12px;display:flex;flex-direction:column}}
+.ccard-top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}}
+.cname{{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--clr,#6366F1)}}
+.cbdgs{{display:flex;gap:5px}}
+.ov-hdrbdg,.hi-hdrbdg{{font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px}}
+.ov-hdrbdg{{background:rgba(239,68,68,.15);color:#F87171}}
+.hi-hdrbdg{{background:rgba(245,158,11,.15);color:#FCD34D}}
+.cstats{{display:flex;gap:2px;margin-bottom:10px}}
+.cs{{flex:1;text-align:center}}
+.csn{{font-size:17px;font-weight:700;font-family:"JetBrains Mono",monospace;display:block;line-height:1}}
+.csl{{font-size:9px;color:#7880A4;text-transform:uppercase;letter-spacing:.3px;display:block;margin-top:2px}}
+.prog-wrap{{background:rgba(255,255,255,.06);border-radius:4px;height:4px;margin-bottom:12px;overflow:hidden}}
+.prog-bar{{height:100%;border-radius:4px}}
+.tlist{{display:flex;flex-direction:column;gap:1px;margin-bottom:10px;flex:1}}
+.grp-lbl{{font-size:8.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;padding:7px 0 2px;margin-top:2px}}
+.gl-high{{color:#F87171}}.gl-med{{color:#FCD34D}}.gl-low{{color:#93C5FD}}
+.t-item{{display:flex;align-items:flex-start;gap:7px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.025)}}
+.t-dot{{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:5px}}
+.dot-high{{background:#EF4444}}.dot-med{{background:#F59E0B}}.dot-low{{background:#3B82F6}}
+.t-title{{font-size:11.5px;line-height:1.35;flex:1}}
+.ti-high{{color:#FCA5A5}}.ti-med{{color:#D1D5DB}}.ti-low{{color:#9CA3AF}}
+.ov-tag{{font-size:8.5px;font-weight:700;color:#F87171;background:rgba(239,68,68,.12);padding:1px 5px;border-radius:3px;white-space:nowrap;flex-shrink:0;margin-top:3px}}
+.ip-tag{{font-size:9px;color:#60A5FA;flex-shrink:0;margin-top:2px}}
+.ho-tag{{font-size:9px;color:#FCD34D;flex-shrink:0;margin-top:2px}}
+.rs-tag{{font-size:9px;color:#A78BFA;flex-shrink:0;margin-top:2px}}
+.p-more{{font-size:11px;color:#4B5563;font-style:italic;padding:5px 0 0 13px}}
+.cftr{{display:flex;flex-wrap:wrap;gap:4px;padding-top:10px;border-top:1px solid rgba(255,255,255,.05)}}
+.c-pill{{font-size:9px;background:rgba(120,128,164,.12);color:#6B7280;padding:2px 7px;border-radius:20px}}
+@media(max-width:1200px){{.cgrid{{grid-template-columns:repeat(2,1fr)}}}}
+@media(max-width:760px){{.cgrid{{grid-template-columns:1fr}}.smry{{grid-template-columns:repeat(3,1fr)}}}}
+</style>
+<div class="pw">
+<div class="phdr">
+  <div>
+    <div class="ptitle">Growth Portfolio &middot; RheumaCARE</div>
+    <div class="psub">Dr. Vaisakh VS &middot; Growth Manager &middot; {_nctr} centres active</div>
+  </div>
+  <div class="pts"><div>{_nows}</div><div>&#128100; {_usr}</div></div>
+</div>
+<div class="smry">
+  <div class="sm"><span class="smn" style="color:#E8EAFF">{_ta}</span><span class="sml">Active Tasks</span></div>
+  <div class="sm"><span class="smn" style="color:#F87171">{_tov}</span><span class="sml">Overdue</span></div>
+  <div class="sm"><span class="smn" style="color:#FBBF24">{_thi}</span><span class="sml">High Priority</span></div>
+  <div class="sm"><span class="smn" style="color:#93C5FD">{_tmd}</span><span class="sml">Medium</span></div>
+  <div class="sm"><span class="smn" style="color:#34D399">{_tip}</span><span class="sml">In Progress</span></div>
+  <div class="sm"><span class="smn" style="color:#FCD34D">{_toh}</span><span class="sml">On Hold</span></div>
+</div>
+<div class="cgrid">{_cards}</div>
+</div>''', unsafe_allow_html=True)
 
 if __name__=="__main__": main()
 # ── NATIVE STREAMLIT AUTO-REFRESH ─────────────────────────────
