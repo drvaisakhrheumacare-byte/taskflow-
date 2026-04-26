@@ -1,5 +1,5 @@
 import streamlit as st
-st.set_page_config(page_title="Growth Manager Dashboard", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Growth Manager Dashboard v5", page_icon="📊", layout="wide")
 
 import pandas as pd
 import gspread
